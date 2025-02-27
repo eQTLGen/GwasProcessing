@@ -10,17 +10,14 @@ library(dtplyr)
 library(arrow)
 
 # Declare constants
-SOFTWARE_VERSION <- 1.2
+SOFTWARE_VERSION <- 2.0
 
 # None for now
 
 # Declare function definitions
 
 # Function to load the mapping information and summary statistics info
-load_mapping_files <- function(gwas_file_path, format_file_path) {
-  # Load GWAS file names and formats
-  gwas_dt <- fread(gwas_file_path)
-
+load_format_file <- function(format_file_path) {
   # Load the column mapping for summary statistics formats
   format_mapping_dt <- fread(format_file_path)
 
@@ -30,7 +27,7 @@ load_mapping_files <- function(gwas_file_path, format_file_path) {
   })
   names(format_mappings) <- format_mapping_dt$format_name
 
-  return(list(gwas_dt = gwas_dt, format_mappings = format_mappings))
+  return(format_mappings)
 }
 
 
@@ -74,7 +71,7 @@ check_columns <- function(data, required_columns) {
 
 
 # Harmonize each GWAS file
-harmonize_gwas_file <- function(gwas_path, format_info, liftover_chain = NULL, output_z_scores = FALSE) {
+harmonize_gwas_file <- function(gwas_data, format_info, liftover_chain = NULL, output_z_scores = FALSE, output_sample_size = TRUE, sample_size = NULL) {
   build <- format_info$build
 
   column_types <- list(numeric = c(format_info$p),
@@ -82,7 +79,6 @@ harmonize_gwas_file <- function(gwas_path, format_info, liftover_chain = NULL, o
                        character = c(format_info$chr, format_info$snp, format_info$a1, format_info$a2))
 
   # Load the summary statistics file using data.table
-  gwas_data <- fread(gwas_path, skip=format_info$skip_lines)
   original_length <- nrow(gwas_data)
 
   gwas_data[, (column_types[["numeric"]]) := lapply(.SD, as.numeric), .SDcols = column_types[["numeric"]]]
@@ -93,9 +89,9 @@ harmonize_gwas_file <- function(gwas_path, format_info, liftover_chain = NULL, o
 
   if (format_info$snp == "" | !(format_info$snp %in% names(gwas_data))) {
     gwas_data[, "snp" := paste(get(required_columns['chr']),
-                                get(required_columns['bp']),
-                                get(required_columns['a1']),
-                                get(required_columns['a2']), sep="_")]
+                               get(required_columns['bp']),
+                               get(required_columns['a1']),
+                               get(required_columns['a2']), sep="_")]
     required_columns["snp"] <- "snp"
   }
 
@@ -106,6 +102,16 @@ harmonize_gwas_file <- function(gwas_path, format_info, liftover_chain = NULL, o
   # Rename columns to a standardized format
   setnames(gwas_data, old = required_columns,
            new = c("CHR", "BP", "SNP", "A1", "A2", "p"))
+
+  # Check and convert p-values
+  if (max(gwas_data$p) > 1 & str_detect(tolower(format_info$p), "log")) {
+    message("Detected -log10 p-values. Converting...")
+    gwas_data[, p := 10^(-gwas_data$p)]
+  } else if (max(gwas_data$p) > 1) {
+    warning("Max p-value is greater than 1, but column name does not indicate log transformation. Check this!")
+  } else if (str_detect(tolower(format_info$p), "log")) {
+    warning("Max p-value is not greater than 1, but column name indicates log transformation. Check this!")
+  }
 
   # Check and convert effect estimates
   gwas_data <- convert_effect_to_beta_dynamically(gwas_data, format_info)
@@ -118,6 +124,11 @@ harmonize_gwas_file <- function(gwas_path, format_info, liftover_chain = NULL, o
     columns_to_check <- c("CHR", "BP", "SNP", "A1", "A2", "p", "Z")
   } else {
     columns_to_check <- c("CHR", "BP", "SNP", "A1", "A2", "p", "se", "EFFECT")
+  }
+
+  if (output_sample_size) {
+    gwas_data <- map_sample_size(gwas_data, format_info, sample_size)
+    columns_to_check <- c(columns_to_check, "N")
   }
 
   gwas_data <- gwas_data[rowSums(is.na(gwas_data[, columns_to_check, with = FALSE])) == 0, ]
@@ -134,6 +145,52 @@ harmonize_gwas_file <- function(gwas_path, format_info, liftover_chain = NULL, o
               original_length = original_length,
               removed_na_length = removed_na_length,
               lifted_length = lifted_length))
+}
+
+
+map_sample_size <- function(gwas_data, format_info, sample_size) {
+  message("Sample size requested")
+
+  gwas_data[, N := NA_complex_]
+  gwas_data[, Ntype := NA_character_]
+
+  if (!is.null(format_info$n) & !is.na(format_info$n) & format_info$n != "") {
+    message(sprintf("Using sample size column id: %s", format_info$n))
+
+    gwas_data[, N := as.integer(gwas_data[[format_info$n]])]
+    gwas_data[, Ntype := "actual"]
+
+  } else if (
+    !is.null(format_info$n_cas_col) & !is.na(format_info$n_cas_col) & format_info$n_cas_col != "" &
+      !is.null(format_info$n_con_col) & !is.na(format_info$n_con_col) & format_info$n_con_col != "") {
+
+    message(sprintf("Using sum of sample size columns: %s and %s", format_info$n_cas_col, format_info$n_con_col))
+
+    gwas_data[, N := as.integer(gwas_data[[format_info$n_con_col]]) + as.integer(gwas_data[[format_info$n_con_col]])]
+    gwas_data[, Ntype := "actual"]
+
+  } else if (!is.null(format_info$frq) & !is.na(format_info$frq) & format_info$frq != "") {
+    message("Could not find sample size column ID, using effect allele frequency to derive sample size")
+
+    effect_allele_freq <- as.numeric(gwas_data[[format_info$frq]])
+    gwas_data[, N := 1 / (2 * se^2 * effect_allele_freq * (1 - effect_allele_freq))]
+    gwas_data[, Ntype := "derived"]
+
+    # Ensure sample size does not exceed maximum if sample_size is provided
+    if (!is.null(sample_size)) {
+      gwas_data[, N := pmin(N, sample_size)]
+    }
+
+  } else {
+    message("Could not find sample size column ID, filling with NA...")
+  }
+  if (!is.null(sample_size)) {
+    message(sprintf("Using default sample size (%s) for %s rows.", sample_size, sum(is.na(gwas_data$n))))
+
+    gwas_data[, Ntype := fcase(is.na(N), "fixed", default=N)]
+    gwas_data[, N := fcase(is.na(N), sample_size, default=N)]
+  }
+  return(gwas_data)
 }
 
 
@@ -353,146 +410,99 @@ main <- function(argv = NULL) {
   # Add arguments
   parser$add_argument("--out-dir", type = "character", required = TRUE,
                       help = "Base directory where the processed summary statistics files will be stored.")
-  parser$add_argument("--gwas-file", type = "character", required = TRUE,
-                      help = "Path to the tabulated file containing GWAS file names and formats (e.g., TSV file).")
+  parser$add_argument('--gwas-file', type = 'character',
+                      help = 'A tab-delimited file with GWAS summary statistics.')
+  parser$add_argument("--gwas-id", type = "character", required = TRUE,
+                      help = 'ID for which the harmonization is done.')
+  parser$add_argument("--format-id", type = "character", required = TRUE,
+                      help = 'ID of the format to use')
   parser$add_argument("--format-file", type = "character", required = TRUE,
                       help = "Path to the tabulated file containing summary statistics format mappings (e.g., TSV file).")
-  parser$add_argument("--z", required = FALSE, action="store_true", default=FALSE,
-                      help = "Instead of beta's and standard errors, output z-scores")
   parser$add_argument("--liftover-chain", type = "character", required = TRUE,
                       help = "Path to the chain file for liftover (e.g., hg19ToHg38.over.chain.gz).")
-  parser$add_argument("--eQTLGen-index", type = "character", required = TRUE, default="/groups/umcg-fg/tmp01/projects/eqtlgen-phase2/processed_data/variants/1000G-30x_index.parquet",
-                      help = "eQTLGen parquet index file.")
+  parser$add_argument("--sample-size", "-n", type = "integer", required = FALSE,
+                      help = "Sample size of the gwas (is this is not in the GWAS data itself)")
+  parser$add_argument("--eQTLGen-index", type = "character", required = TRUE,
+                      help = "extended eQTLGen parquet index file (with unique mapping ids).")
 
   # Parse arguments
   args <- parser$parse_args(argv)
 
-  eqtlgen_index_file <- "/groups/umcg-fg/tmp01/projects/eqtlgen-phase2/processed_data/variants/1000G-30x_index.parquet"
-  gwas_tab_file <- "trait_list.txt"
-  gwas_format_file <- "format_list.txt"
-  liftover_chain_file <- "/groups/umcg-fg/tmp01/projects/eqtlgen-phase2/public_data/liftOver/hg19ToHg38.over.chain"
-  out_dir <- "/groups/umcg-fg/tmp01/projects/eqtlgen-phase2/public_data/linking_disease_relevant_genes/harmonized"
-  output_z_scores <- TRUE
-
   eqtlgen_index_file <- args$eQTLGen_index
   gwas_tab_file <- args$gwas_file
+  trait_id <- args$gwas_id
+  format_id <- args$format_id
   gwas_format_file <- args$format_file
   liftover_chain_file <- args$liftover_chain
   out_dir <- args$out_dir
-  output_z_scores <- args$z
+  sample_size <- args$sample_size
 
-  # Load eQTLGen index
-  eqtlgen_index <- arrow::read_parquet(eqtlgen_index_file)
-  eqtlgen_index[, mapping_id := paste0(chromosome, "_", bp, "_", pmin(eff_allele, non_eff_allele), "_", pmax(eff_allele, non_eff_allele))]
-  eqtlgen_index_extended <- eqtlgen_index %>% group_by(mapping_id) %>%
-    filter(n() == 1) %>% ungroup() %>% as.data.table()
+  format_mappings <- load_format_file(gwas_format_file)
+
+  eqtlgen_index_extended <- arrow::read_parquet(eqtlgen_index_file)
   setkey(eqtlgen_index_extended, mapping_id)
 
-  # Load mapping information
-  mappings <- load_mapping_files(gwas_tab_file, gwas_format_file)
-  gwas_dt <- mappings$gwas_dt
-  format_mappings <- mappings$format_mappings
+  message(sprintf("Starting '%s' (%i / %i)\nfile: '%s'\nformat: '%s'", trait_id, gwas_tab_file, format_name))
 
-  # Process each GWAS file
-  for (i in seq_len(nrow(gwas_dt))) {
-    gwas_file <- gwas_dt[i, gwas_file]
-    gwas_dir <- gwas_dt[i, gwas_dir]
-    format_name <- gwas_dt[i, format_name]
-    trait_id <- gwas_dt[i, trait_identifier]
+  gwas_data <- fread(gwas_path, skip=format_info$skip_lines)
 
-    message(sprintf("Starting '%s' (%i / %i)\nfile: '%s'\nformat: '%s'", trait_id, i, nrow(gwas_dt), gwas_file, format_name))
+  # Get format information for the current GWAS file
+  format_info <- format_mappings[[format_id]]
 
-    # Get format information for the current GWAS file
-    format_info <- format_mappings[[format_name]]
+  # Harmonize the file
+  harmonized_data <- harmonize_gwas_file(gwas_data, format_info, liftover_chain_file, output_z_scores = FALSE, output_sample_size = TRUE, sample_size = sample_size)
+  harmonized_gwas_data <- harmonized_data$gwas_dt
+  original_length <- harmonized_data$original_length
+  removed_na_length <- harmonized_data$removed_na_length
+  lifted_length <- harmonized_data$lifted_length
 
-    log_file <- file.path(out_dir, "logs", sprintf("%s.log.txt", trait_id))
-    skip <- check_if_skip(log_file, format_info, gwas_file)
-    if (skip == 1) {
-      message("File already processed. Skipping...")
-      next
-    } else if (skip == -1) {
-      message(sprintf("File already processed, but variables were unexpected. Overwriting"))
-    }
+  message(sprintf("Original rows: %i\nAfter removing rows where some of the remapped columns have NA's: %i\nAfter liftOver: %i\n", original_length, removed_na_length, lifted_length))
 
-    gwas_path <- file.path(gwas_dir, gwas_file)
+  # Save the harmonized data to a new file
+  output_file <- file.path(out_dir, sprintf("%s.sumstats.harmonized.gz", args$pqtl_id))
+  fwrite(harmonized_gwas_data[, .(SNP, CHR, BP, A1, A2, EFFECT, p, se, N)], output_file, sep = "\t", row.names=F, col.names=T, quote=F)
+  message(sprintf("Harmonized %s -> %s", args$pqtl_folder, output_file))
+  message("Starting merging...")
 
-    if (file.exists(gwas_path)) {
+  harmonized_gwas_data[, mapping_id := paste0(CHR, "_", BP, "_", pmin(A1, A2), "_", pmax(A1, A2))]
+  harmonized_data_subset <- harmonized_gwas_data[, .(mapping_id, A1, A2, EFFECT, p, se, N)]
 
-      # Harmonize the file
-      harmonized_data <- harmonize_gwas_file(gwas_path, format_info, liftover_chain = liftover_chain_file, output_z_scores = output_z_scores)
-      harmonized_gwas_data <- harmonized_data$gwas_dt
-      original_length <- harmonized_data$original_length
-      removed_na_length <- harmonized_data$removed_na_length
-      lifted_length <- harmonized_data$lifted_length
+  setkey(harmonized_data_subset, mapping_id)
+  merged_gwas_data <- merge(harmonized_data_subset,eqtlgen_index_extended, all=F)
+  merged_length <- nrow(merged_gwas_data)
+  message(sprintf("After merging: %i", merged_length))
 
-      # Save the harmonized data to a new file
-      output_file <- file.path(out_dir, sprintf("%s.sumstats.harmonized.gz", trait_id))
-      if (output_z_scores) {
-        fwrite(harmonized_gwas_data[, .(SNP, CHR, BP, A1, A2, Z, p)], output_file, sep = "\t", row.names=F, col.names=T, quote=F)
-      } else {
-        fwrite(harmonized_gwas_data[, .(SNP, CHR, BP, A1, A2, EFFECT, p, se)], output_file, sep = "\t", row.names=F, col.names=T, quote=F)
-      }
-      message(sprintf("Harmonized %s -> %s", gwas_file, output_file))
-      message(sprintf("Original rows: %i\nAfter removing rows where some of the remapped columns have NA's: %i\nAfter liftOver: %i\n", original_length, removed_na_length, lifted_length))
-      message("Starting merging...")
+  merged_gwas_data[, beta := merged_gwas_data[["EFFECT"]]]
+  merged_gwas_data[eff_allele != A1,"beta"] <- merged_gwas_data[eff_allele != A1,beta*-1]
 
-      harmonized_gwas_data[, mapping_id := paste0(CHR, "_", BP, "_", pmin(A1, A2), "_", pmax(A1, A2))]
-      if (output_z_scores) {
-        harmonized_data_subset <- harmonized_gwas_data[, .(mapping_id, A1, A2, Z, p)]
-      } else {
-        harmonized_data_subset <- harmonized_gwas_data[, .(mapping_id, A1, A2, EFFECT, p, se)]
-      }
+  swapped_rows <- nrow(merged_gwas_data[beta != EFFECT])
+  message(sprintf("Swapped beta sign: %i / %i (%.3f%%)", swapped_rows, merged_length, swapped_rows/merged_length*100))
 
-      setkey(harmonized_data_subset, mapping_id)
-      merged_gwas_data <- merge(harmonized_data_subset,eqtlgen_index_extended, all=F)
-      merged_length <- nrow(merged_gwas_data)
-      message(sprintf("After merging: %i", merged_length))
+  merged_gwas_data[, c("mapping_id", "EFFECT") := NULL, ]
 
-      if (output_z_scores) {
-        merged_gwas_data[, z_score := merged_gwas_data[["Z"]]]
-        merged_gwas_data[eff_allele != A1,"z_score"] <- merged_gwas_data[eff_allele != A1,z_score*-1]
+  merged_gwas_data[, gwas_id := args$pqtl_id]
 
-        swapped_rows <- nrow(merged_gwas_data[z_score != Z])
-        message(sprintf("Swapped beta sign: %i / %i (%.3f%%)", swapped_rows, merged_length, swapped_rows/merged_length*100))
+  names(merged_gwas_data)[names(merged_gwas_data) == 'eff_allele'] <- 'str_allele2'
+  names(merged_gwas_data)[names(merged_gwas_data) == 'non_eff_allele'] <- 'str_allele1'
 
-        merged_gwas_data[, c("mapping_id", "Z") := NULL, ]
-      } else {
-        merged_gwas_data[, beta := merged_gwas_data[["EFFECT"]]]
-        merged_gwas_data[eff_allele != A1,"beta"] <- merged_gwas_data[eff_allele != A1,beta*-1]
+  write_dataset(merged_gwas_data, file.path(out_dir, "eqtlgen_parquet_dataset"),
+                format="parquet", partitioning="gwas_id", existing_data_behavior="delete_matching")
 
-        swapped_rows <- nrow(merged_gwas_data[beta != EFFECT])
-        message(sprintf("Swapped beta sign: %i / %i (%.3f%%)", swapped_rows, merged_length, swapped_rows/merged_length*100))
+  log <- tibble(trait_id = args$pqtl_id,
+                original_file = args$pqtl_folder,
+                format = format_id,
+                original_length = original_length,
+                removed_na_length = removed_na_length,
+                lifted_length = lifted_length,
+                merged_length = merged_length,
+                swapped_rows = swapped_rows,
+                format_info = list(format_info),
+                software_version = SOFTWARE_VERSION
+  ) %>% unnest_wider(format_info, names_sep="_")
 
-        merged_gwas_data[, c("mapping_id", "EFFECT") := NULL, ]
-      }
-      merged_gwas_data[, gwas_id := trait_id]
+  log_file <- file.path(args$out_dir, "logs", sprintf("%s.log.txt", args$pqtl_id))
 
-      names(merged_gwas_data)[names(merged_gwas_data) == 'eff_allele'] <- 'str_allele2'
-      names(merged_gwas_data)[names(merged_gwas_data) == 'non_eff_allele'] <- 'str_allele1'
-
-      write_dataset(merged_gwas_data, file.path(out_dir, "eqtlgen_parquet_dataset"),
-                    format="parquet", partitioning="gwas_id", existing_data_behavior="delete_matching")
-
-      log <- tibble(trait_id = trait_id,
-             original_file = gwas_file,
-             format = format_name,
-             original_length = original_length,
-             removed_na_length = removed_na_length,
-             lifted_length = lifted_length,
-             merged_length = merged_length,
-             swapped_rows = swapped_rows,
-             format_info = list(format_info),
-             software_version = SOFTWARE_VERSION
-      ) %>% unnest_wider(format_info, names_sep="_")
-
-      fwrite(log, log_file)
-
-    } else {
-      message(sprintf("File %s not found.", gwas_file))
-    }
-    message(sprintf("Done! %i of %i", i, nrow(gwas_dt)))
-  }
-
+  fwrite(log, log_file)
 }
 
 # Entry point check
