@@ -5,7 +5,10 @@
  */
 nextflow.enable.dsl = 2
 
-params.outdir = 'results'
+params.output = 'results'
+params.variant_mapping = ''
+
+variant_mapping_ch = Channel.fromPath(params.variant_mapping).collect()
 
 // pQTL arguments
 pqtl_files_ch = Channel.fromPath("${params.pqtl_files}/*.tar").
@@ -24,18 +27,17 @@ process HARMONIZE_UKB_PPP {
     //scratch true // Needs to be set to true!
     scratch '$TMPDIR'
     // scratch false
-    publishDir "${params.output}", mode: 'copy', overwrite: true, pattern: 'eqtlgen_parquet_dataset/*.parquet'
-
+    publishDir "${params.output}", mode: 'copy', overwrite: true, pattern: 'eqtlgen_parquet_dataset/gwas_id=*'
     tag "$id"
-    cpus 2
-    memory '6GB'
+    beforeScript "ml R"
 
     input:
         tuple val(id), path(pqtl)
         path variant_reference
 
     output:
-        tuple val(id), path("eqtlgen_parquet_dataset/*.parquet")
+        tuple val(id), path("eqtlgen_parquet_dataset/gwas_id=*")
+        path("*.log.txt")
 
     shell:
         '''
@@ -57,6 +59,5 @@ process HARMONIZE_UKB_PPP {
 }
 
 workflow {
-    HARMONIZE_UKB_PPP(pqtl_files_ch)
-
+    HARMONIZE_UKB_PPP(pqtl_files_ch, variant_mapping_ch)
 }

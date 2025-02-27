@@ -2,7 +2,6 @@
 
 # Load libraries
 library(data.table)
-library(rtracklayer)
 library(argparse)
 library(stringr)
 library(tidyverse)
@@ -324,9 +323,10 @@ lift_to_build_38 <- function(gwas_data, liftover_chain_file) {
 }
 
 # Read in pQTLs
-readpqtl <- function(fn){
+readpqtl <- function(fn, allele_frequency){
+  message(sprintf("Reading file: %s...", fn))
   dt_temp <- fread(fn)
-  dt_temp <- dt_temp[A1FREQ > args$allele_frequency & A1FREQ < 1 - args$allele_frequency]
+  dt_temp <- dt_temp[A1FREQ > allele_frequency & A1FREQ < 1 - allele_frequency]
   keycols <- c("ID")
   setkeyv(dt_temp, keycols)
   return(dt_temp)
@@ -361,7 +361,7 @@ main <- function(argv = NULL) {
 
   pqtl_path <- list.files(args$pqtl_folder, full.names = TRUE)
   pqtl_path <- pqtl_path[!str_detect(pqtl_path, "chrX")]
-  pqtls <- rbindlist(lapply(pqtl_path, readpqtl))
+  pqtls <- rbindlist(lapply(pqtl_path, readpqtl, allele_frequency=args$allele_frequency))
 
   message("pQTLs read in!")
 
@@ -369,14 +369,14 @@ main <- function(argv = NULL) {
   setkey(eqtlgen_index_extended, mapping_id)
 
   # Harmonize the file
-  harmonized_data <- harmonize_gwas_file(copy(pqtls), UKB_PPP_FORMAT_INFO, output_z_scores = FALSE, output_sample_size = TRUE)
+  harmonized_data <- harmonize_gwas_file(pqtls, UKB_PPP_FORMAT_INFO, output_z_scores = FALSE, output_sample_size = TRUE)
   harmonized_gwas_data <- harmonized_data$gwas_dt
   original_length <- harmonized_data$original_length
   removed_na_length <- harmonized_data$removed_na_length
   lifted_length <- harmonized_data$lifted_length
 
   # Save the harmonized data to a new file
-  output_file <- file.path(out_dir, sprintf("%s.sumstats.harmonized.gz", args$pqtl_id))
+  output_file <- file.path(args$out_dir, sprintf("%s.sumstats.harmonized.gz", args$pqtl_id))
   fwrite(harmonized_gwas_data[, .(SNP, CHR, BP, A1, A2, EFFECT, p, se, N)], output_file, sep = "\t", row.names=F, col.names=T, quote=F)
   message(sprintf("Harmonized %s -> %s", args$pqtl_folder, output_file))
   message(sprintf("Original rows: %i\nAfter removing rows where some of the remapped columns have NA's: %i\nAfter liftOver: %i\n", original_length, removed_na_length, lifted_length))
@@ -403,7 +403,7 @@ main <- function(argv = NULL) {
   names(merged_gwas_data)[names(merged_gwas_data) == 'eff_allele'] <- 'str_allele2'
   names(merged_gwas_data)[names(merged_gwas_data) == 'non_eff_allele'] <- 'str_allele1'
 
-  write_dataset(merged_gwas_data, file.path(out_dir, "eqtlgen_parquet_dataset"),
+  write_dataset(arrange(merged_gwas_data, variant_index), file.path(args$out_dir, "eqtlgen_parquet_dataset"),
                 format="parquet", partitioning="gwas_id", existing_data_behavior="delete_matching")
 
   log <- tibble(trait_id = args$pqtl_id,
@@ -418,7 +418,7 @@ main <- function(argv = NULL) {
                 software_version = SOFTWARE_VERSION
   ) %>% unnest_wider(format_info, names_sep="_")
 
-  log_file <- file.path(args$out_dir, "logs", sprintf("%s.log.txt", args$pqtl_id))
+  log_file <- file.path(args$out_dir, sprintf("%s.log.txt", args$pqtl_id))
 
   fwrite(log, log_file)
 }
