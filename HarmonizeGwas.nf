@@ -9,6 +9,9 @@ params.variant_mapping = ''
 
 variant_mapping_ch = Channel.fromPath(params.variant_mapping).collect()
 chain_file_ch = Channel.fromPath(params.chain_file).collect()
+format_ch = Channel.fromPath(params.format_file).collect()
+
+trait_file = params.trait_file
 
 process HARMONIZE_GWAS {
         //scratch true // Needs to be set to true!
