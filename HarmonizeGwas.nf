@@ -33,7 +33,7 @@ process HARMONIZE_GWAS {
 
     shell:
         '''
-        /groups/umcg-fg/tmp01/projects/eqtlgen-phase2/users/umcg-rwarmerdam/eqtlgen-phase2_scripts/harmonize_sumstats.R \
+        harmonize_sumstats.R \
         --gwas-file !{gwas} \
         --gwas-id !{id} \
         --format-file !{format} \
@@ -48,14 +48,13 @@ process HARMONIZE_GWAS {
 
 workflow {
     gwas_ch = Channel.fromPath(trait_file)
-        .collect()
-        .splitCsv(header: true)
+        .splitCsv(header: true, sep: '\t').view()
         .map { gwas ->
             def full_path = file("${gwas.gwas_dir}/${gwas.gwas_file}") // Join and convert to file
             return tuple(gwas.trait_identifier, gwas.format_name, full_path, gwas.sample_size)
-        }
+        }.first().view()
 
     // harmonized_ch = HARMONIZE_GWAS(combined_ch, format_ch)
-    harmonization_output = HARMONIZE_GWAS(gwas_ch, variant_reference, chain_file, format_ch)
+    harmonization_output = HARMONIZE_GWAS(gwas_ch, variant_mapping_ch, chain_file_ch, format_ch)
     harmonization_output.log.collectFile(name: 'harmonization_log.txt', keepHeader: true, skip: 1, storeDir: params.output)
 }

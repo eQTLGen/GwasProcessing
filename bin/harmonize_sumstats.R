@@ -185,7 +185,7 @@ map_sample_size <- function(gwas_data, format_info, sample_size) {
     message("Could not find sample size column ID, filling with NA...")
   }
   if (!is.null(sample_size)) {
-    message(sprintf("Using default sample size (%s) for %s rows.", sample_size, sum(is.na(gwas_data$n))))
+    message(sprintf("Using default sample size (%s) for %s rows.", sample_size, sum(is.na(gwas_data$N))))
 
     gwas_data[, Ntype := fcase(is.na(N), "fixed", default=N)]
     gwas_data[, N := fcase(is.na(N), sample_size, default=N)]
@@ -429,9 +429,9 @@ main <- function(argv = NULL) {
   args <- parser$parse_args(argv)
 
   eqtlgen_index_file <- args$eQTLGen_index
-  gwas_tab_file <- args$gwas_file
+  gwas_path <- args$gwas_file
   trait_id <- args$gwas_id
-  format_id <- args$format_id
+  format_name <- args$format_id
   gwas_format_file <- args$format_file
   liftover_chain_file <- args$liftover_chain
   out_dir <- args$out_dir
@@ -439,15 +439,15 @@ main <- function(argv = NULL) {
 
   format_mappings <- load_format_file(gwas_format_file)
 
-  eqtlgen_index_extended <- arrow::read_parquet(eqtlgen_index_file)
-  setkey(eqtlgen_index_extended, mapping_id)
+  message(sprintf("Starting '%s' \nfile: '%s'\nformat: '%s'", trait_id, gwas_path, format_name))
 
-  message(sprintf("Starting '%s' (%i / %i)\nfile: '%s'\nformat: '%s'", trait_id, gwas_tab_file, format_name))
+  # Get format information for the current GWAS file
+  format_info <- format_mappings[[format_name]]
 
   gwas_data <- fread(gwas_path, skip=format_info$skip_lines)
 
-  # Get format information for the current GWAS file
-  format_info <- format_mappings[[format_id]]
+  eqtlgen_index_extended <- arrow::read_parquet(eqtlgen_index_file)
+  setkey(eqtlgen_index_extended, mapping_id)
 
   # Harmonize the file
   harmonized_data <- harmonize_gwas_file(gwas_data, format_info, liftover_chain_file, output_z_scores = FALSE, output_sample_size = TRUE, sample_size = sample_size)
@@ -459,7 +459,7 @@ main <- function(argv = NULL) {
   message(sprintf("Original rows: %i\nAfter removing rows where some of the remapped columns have NA's: %i\nAfter liftOver: %i\n", original_length, removed_na_length, lifted_length))
 
   # Save the harmonized data to a new file
-  output_file <- file.path(out_dir, sprintf("%s.sumstats.harmonized.gz", args$pqtl_id))
+  output_file <- file.path(out_dir, sprintf("%s.sumstats.harmonized.gz", trait_id))
   fwrite(harmonized_gwas_data[, .(SNP, CHR, BP, A1, A2, EFFECT, p, se, N)], output_file, sep = "\t", row.names=F, col.names=T, quote=F)
   message(sprintf("Harmonized %s -> %s", args$pqtl_folder, output_file))
   message("Starting merging...")
@@ -480,7 +480,7 @@ main <- function(argv = NULL) {
 
   merged_gwas_data[, c("mapping_id", "EFFECT") := NULL, ]
 
-  merged_gwas_data[, gwas_id := args$pqtl_id]
+  merged_gwas_data[, gwas_id := trait_id]
 
   names(merged_gwas_data)[names(merged_gwas_data) == 'eff_allele'] <- 'str_allele2'
   names(merged_gwas_data)[names(merged_gwas_data) == 'non_eff_allele'] <- 'str_allele1'
@@ -490,7 +490,7 @@ main <- function(argv = NULL) {
 
   log <- tibble(trait_id = args$pqtl_id,
                 original_file = args$pqtl_folder,
-                format = format_id,
+                format = format_name,
                 original_length = original_length,
                 removed_na_length = removed_na_length,
                 lifted_length = lifted_length,
@@ -500,7 +500,7 @@ main <- function(argv = NULL) {
                 software_version = SOFTWARE_VERSION
   ) %>% unnest_wider(format_info, names_sep="_")
 
-  log_file <- file.path(args$out_dir, "logs", sprintf("%s.log.txt", args$pqtl_id))
+  log_file <- file.path(args$out_dir, sprintf("%s.log.txt", trait_id))
 
   fwrite(log, log_file)
 }
