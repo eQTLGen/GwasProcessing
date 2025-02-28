@@ -460,12 +460,12 @@ main <- function(argv = NULL) {
 
   # Save the harmonized data to a new file
   output_file <- file.path(out_dir, sprintf("%s.sumstats.harmonized.gz", trait_id))
-  fwrite(harmonized_gwas_data[, .(SNP, CHR, BP, A1, A2, EFFECT, p, se, N)], output_file, sep = "\t", row.names=F, col.names=T, quote=F)
+  fwrite(harmonized_gwas_data[, .(SNP, CHR, BP, A1, A2, EFFECT, p, se, N, Ntype)], output_file, sep = "\t", row.names=F, col.names=T, quote=F)
   message(sprintf("Harmonized %s -> %s", args$pqtl_folder, output_file))
   message("Starting merging...")
 
   harmonized_gwas_data[, mapping_id := paste0(CHR, "_", BP, "_", pmin(A1, A2), "_", pmax(A1, A2))]
-  harmonized_data_subset <- harmonized_gwas_data[, .(mapping_id, A1, A2, EFFECT, p, se, N)]
+  harmonized_data_subset <- harmonized_gwas_data[, .(mapping_id, A1, A2, EFFECT, p, se, N, Ntype)]
 
   setkey(harmonized_data_subset, mapping_id)
   merged_gwas_data <- merge(harmonized_data_subset,eqtlgen_index_extended, all=F)
