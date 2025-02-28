@@ -173,7 +173,7 @@ map_sample_size <- function(gwas_data, format_info, sample_size) {
     message("Could not find sample size column ID, using effect allele frequency to derive sample size")
 
     effect_allele_freq <- as.numeric(gwas_data[[format_info$frq]])
-    gwas_data[, N := 1 / (2 * se^2 * effect_allele_freq * (1 - effect_allele_freq))]
+    gwas_data[, N := 1 / (2 * se^2 * effect_allele_freq * (1 - effect_allele_freq)) - (EFFECT/se)^2]
     gwas_data[, Ntype := "derived"]
 
     # Ensure sample size does not exceed maximum if sample_size is provided
