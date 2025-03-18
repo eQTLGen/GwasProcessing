@@ -34,7 +34,7 @@ process HARMONIZE_GWAS {
     shell:
         '''
         harmonize_sumstats.R \
-        --gwas-file !{gwas} \
+        --gwas-file !{gwas_files.join(" ")} \
         --gwas-id !{id} \
         --format-file !{format} \
         --format-id !{format_id} \
@@ -50,11 +50,11 @@ workflow {
     gwas_ch = Channel.fromPath(trait_file)
         .splitCsv(header: true, sep: '\t')
         .map { gwas ->
-            def full_path = file("${gwas.gwas_dir}/${gwas.gwas_file}") // Join and convert to file
-            return [trait_identifier: gwas.trait_identifier, format_name: gwas.format_name, gwas_path: full_path, sample_size: gwas.sample_size]
+            def full_paths = file("${gwas.gwas_dir}/${gwas.gwas_file}").list() // Join and convert to file
+            return [trait_identifier: gwas.trait_identifier, format_name: gwas.format_name, gwas_path: full_paths, sample_size: gwas.sample_size]
         }
-        .branch { gwas -> 
-            existing: file(gwas.gwas_path).exists()
+        .branch { gwas ->
+            existing: file(gwas.gwas_paths[0]).exists()
             other: true
         }
 

@@ -417,7 +417,7 @@ main <- function(argv = NULL) {
   # Add arguments
   parser$add_argument("--out-dir", type = "character", required = TRUE,
                       help = "Base directory where the processed summary statistics files will be stored.")
-  parser$add_argument('--gwas-file', type = 'character',
+  parser$add_argument('--gwas-file', type = 'character', nargs="+",
                       help = 'A tab-delimited file with GWAS summary statistics.')
   parser$add_argument("--gwas-id", type = "character", required = TRUE,
                       help = 'ID for which the harmonization is done.')
@@ -436,7 +436,7 @@ main <- function(argv = NULL) {
   args <- parser$parse_args(argv)
 
   eqtlgen_index_file <- args$eQTLGen_index
-  gwas_path <- args$gwas_file
+  gwas_paths <- args$gwas_file
   trait_id <- args$gwas_id
   format_name <- args$format_id
   gwas_format_file <- args$format_file
@@ -446,12 +446,15 @@ main <- function(argv = NULL) {
 
   format_mappings <- load_format_file(gwas_format_file)
 
-  message(sprintf("Starting '%s' \nfile: '%s'\nformat: '%s'", trait_id, gwas_path, format_name))
+  message(sprintf("Starting '%s' \nformat: '%s'", trait_id, format_name))
 
   # Get format information for the current GWAS file
   format_info <- format_mappings[[format_name]]
 
-  gwas_data <- fread(gwas_path, skip=format_info$skip_lines)
+  gwas_data <- bind_rows(mapply(function(gwas_path) {
+    message(sprintf("Reading file: '%s'\nformat: '%s'", gwas_path, format_name))
+    fread(gwas_path, skip=format_info$skip_lines)
+  }, gwas_paths, SIMPLIFY=F))
 
   eqtlgen_index_extended <- arrow::read_parquet(eqtlgen_index_file)
   setkey(eqtlgen_index_extended, mapping_id)
