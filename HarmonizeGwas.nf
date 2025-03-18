@@ -48,13 +48,22 @@ process HARMONIZE_GWAS {
 
 workflow {
     gwas_ch = Channel.fromPath(trait_file)
-        .splitCsv(header: true, sep: '\t').view()
+        .splitCsv(header: true, sep: '\t')
         .map { gwas ->
             def full_path = file("${gwas.gwas_dir}/${gwas.gwas_file}") // Join and convert to file
-            return tuple(gwas.trait_identifier, gwas.format_name, full_path, gwas.sample_size)
-        }.first().view()
+            return [trait_identifier: gwas.trait_identifier, format_name: gwas.format_name, gwas_path: full_path, sample_size: gwas.sample_size]
+        }
+        .branch { gwas -> 
+            existing: file(gwas.gwas_path).exists()
+            other: true
+        }
 
     // harmonized_ch = HARMONIZE_GWAS(combined_ch, format_ch)
-    harmonization_output = HARMONIZE_GWAS(gwas_ch, variant_mapping_ch, chain_file_ch, format_ch)
+    harmonization_output = HARMONIZE_GWAS(gwas_ch.existing, variant_mapping_ch, chain_file_ch, format_ch)
     harmonization_output.log.collectFile(name: 'harmonization_log.txt', keepHeader: true, skip: 1, storeDir: params.output)
+
+    // Write list of missing files
+    gwas_ch.other
+        .map { gwas -> gwas.gwas_path.toString() }
+        .collectFile(name: "missing_files.txt", newLine: true, storeDir: params.output)
 }

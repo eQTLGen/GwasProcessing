@@ -104,10 +104,10 @@ harmonize_gwas_file <- function(gwas_data, format_info, liftover_chain = NULL, o
            new = c("CHR", "BP", "SNP", "A1", "A2", "p"))
 
   # Check and convert p-values
-  if (max(gwas_data$p) > 1 & str_detect(tolower(format_info$p), "log")) {
+  if (max(gwas_data$p, na.rm=T) > 1 & str_detect(tolower(format_info$p), "log")) {
     message("Detected -log10 p-values. Converting...")
     gwas_data[, p := 10^(-gwas_data$p)]
-  } else if (max(gwas_data$p) > 1) {
+  } else if (max(gwas_data$p, na.rm=T) > 1) {
     warning("Max p-value is greater than 1, but column name does not indicate log transformation. Check this!")
   } else if (str_detect(tolower(format_info$p), "log")) {
     warning("Max p-value is not greater than 1, but column name indicates log transformation. Check this!")
@@ -130,6 +130,8 @@ harmonize_gwas_file <- function(gwas_data, format_info, liftover_chain = NULL, o
     gwas_data <- map_sample_size(gwas_data, format_info, sample_size)
     columns_to_check <- c(columns_to_check, "N")
   }
+
+  print(gwas_data)
 
   gwas_data <- gwas_data[rowSums(is.na(gwas_data[, columns_to_check, with = FALSE])) == 0, ]
   removed_na_length <- nrow(gwas_data)
@@ -154,31 +156,36 @@ map_sample_size <- function(gwas_data, format_info, sample_size) {
   gwas_data[, N := NA_complex_]
   gwas_data[, Ntype := NA_character_]
 
-  if (!is.null(format_info$n) & !is.na(format_info$n) & format_info$n != "") {
+  print(gwas_data)
+
+  if (!is.null(format_info$n) & !is.na(format_info$n) & format_info$n != "" & format_info$n %in% colnames(gwas_data)) {
     message(sprintf("Using sample size column id: %s", format_info$n))
 
-    gwas_data[, N := as.integer(gwas_data[[format_info$n]])]
+    gwas_data[, N := as.numeric(gwas_data[[format_info$n]])]
     gwas_data[, Ntype := "actual"]
 
   } else if (
-    !is.null(format_info$n_cas_col) & !is.na(format_info$n_cas_col) & format_info$n_cas_col != "" &
-      !is.null(format_info$n_con_col) & !is.na(format_info$n_con_col) & format_info$n_con_col != "") {
+    !is.null(format_info$n_cas_col) & !is.na(format_info$n_cas_col) & format_info$n_cas_col != "" & format_info$n_cas_col %in% colnames(gwas_data) &
+      !is.null(format_info$n_con_col) & !is.na(format_info$n_con_col) & format_info$n_con_col != "" & format_info$n_cas_col %in% colnames(gwas_data)) {
 
     message(sprintf("Using sum of sample size columns: %s and %s", format_info$n_cas_col, format_info$n_con_col))
 
-    gwas_data[, N := as.integer(gwas_data[[format_info$n_con_col]]) + as.integer(gwas_data[[format_info$n_con_col]])]
+    gwas_data[, N := as.numeric(gwas_data[[format_info$n_con_col]]) + as.numeric(gwas_data[[format_info$n_con_col]])]
     gwas_data[, Ntype := "actual"]
 
   } else if (!is.null(format_info$frq) & !is.na(format_info$frq) & format_info$frq != "") {
     message("Could not find sample size column ID, using effect allele frequency to derive sample size")
 
+    print(format_info$frq)
+    print(gwas_data[[format_info$frq]])
     effect_allele_freq <- as.numeric(gwas_data[[format_info$frq]])
+    print(effect_allele_freq)
     gwas_data[, N := 1 / (2 * se^2 * effect_allele_freq * (1 - effect_allele_freq)) - (EFFECT/se)^2]
     gwas_data[, Ntype := "derived"]
 
     # Ensure sample size does not exceed maximum if sample_size is provided
     if (!is.null(sample_size)) {
-      gwas_data[, N := pmin(N, sample_size)]
+      gwas_data[, N := pmin(N, as.numeric(sample_size))]
     }
 
   } else {
@@ -187,8 +194,8 @@ map_sample_size <- function(gwas_data, format_info, sample_size) {
   if (!is.null(sample_size)) {
     message(sprintf("Using default sample size (%s) for %s rows.", sample_size, sum(is.na(gwas_data$N))))
 
-    gwas_data[, Ntype := fcase(is.na(N), "fixed", default=N)]
-    gwas_data[, N := fcase(is.na(N), sample_size, default=N)]
+    gwas_data[, Ntype := fcase(is.na(N), "fixed", default=Ntype)]
+    gwas_data[, N := fcase(is.na(N), as.numeric(sample_size), default=N)]
   }
   return(gwas_data)
 }
