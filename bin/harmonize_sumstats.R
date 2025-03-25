@@ -113,6 +113,16 @@ harmonize_gwas_file <- function(gwas_data, format_info, liftover_chain = NULL, o
     warning("Max p-value is not greater than 1, but column name indicates log transformation. Check this!")
   }
 
+  if (!is.null(format_info$frq) & !is.na(format_info$frq)
+    & format_info$frq != "" & format_info$frq %in% colnames(gwas_data)) {
+    message("mapping effect allele frequency")
+
+    print(format_info$frq)
+    gwas_data[, "eaf" := as.numeric(gwas_data[[format_info$frq]])]
+  } else {
+    gwas_data[, "eaf" := NA]
+  }
+
   # Check and convert effect estimates
   gwas_data <- convert_effect_to_beta_dynamically(gwas_data, format_info)
   if ("EFFECT" %in% colnames(gwas_data)) {
@@ -173,14 +183,10 @@ map_sample_size <- function(gwas_data, format_info, sample_size) {
     gwas_data[, N := as.numeric(gwas_data[[format_info$n_con_col]]) + as.numeric(gwas_data[[format_info$n_con_col]])]
     gwas_data[, Ntype := "actual"]
 
-  } else if (!is.null(format_info$frq) & !is.na(format_info$frq) & format_info$frq != "") {
+  } else if (any(!is.na(gwas_data[eaf]))) {
     message("Could not find sample size column ID, using effect allele frequency to derive sample size")
 
-    print(format_info$frq)
-    print(gwas_data[[format_info$frq]])
-    effect_allele_freq <- as.numeric(gwas_data[[format_info$frq]])
-    print(effect_allele_freq)
-    gwas_data[, N := 1 / (2 * se^2 * effect_allele_freq * (1 - effect_allele_freq)) - (EFFECT/se)^2]
+    gwas_data[, N := 1 / (2 * se^2 * eaf * (1 - eaf)) - (EFFECT/se)^2]
     gwas_data[, Ntype := "derived"]
 
     # Ensure sample size does not exceed maximum if sample_size is provided
@@ -475,7 +481,7 @@ main <- function(argv = NULL) {
   message("Starting merging...")
 
   harmonized_gwas_data[, mapping_id := paste0(CHR, "_", BP, "_", pmin(A1, A2), "_", pmax(A1, A2))]
-  harmonized_data_subset <- harmonized_gwas_data[, .(mapping_id, A1, A2, EFFECT, p, se, N, Ntype)]
+  harmonized_data_subset <- harmonized_gwas_data[, .(mapping_id, A1, A2, EFFECT, p, se, eaf, N, Ntype)]
 
   setkey(harmonized_data_subset, mapping_id)
   merged_gwas_data <- merge(harmonized_data_subset,eqtlgen_index_extended, all=F)
@@ -484,6 +490,7 @@ main <- function(argv = NULL) {
 
   merged_gwas_data[, beta := merged_gwas_data[["EFFECT"]]]
   merged_gwas_data[eff_allele != A1,"beta"] <- merged_gwas_data[eff_allele != A1,beta*-1]
+  merged_gwas_data[eff_allele != A1,"eaf"] <- merged_gwas_data[eff_allele != A1,eaf*-1]
 
   swapped_rows <- nrow(merged_gwas_data[beta != EFFECT])
   message(sprintf("Swapped beta sign: %i / %i (%.3f%%)", swapped_rows, merged_length, swapped_rows/merged_length*100))
