@@ -113,12 +113,18 @@ harmonize_gwas_file <- function(gwas_data, format_info, liftover_chain = NULL, o
     warning("Max p-value is not greater than 1, but column name indicates log transformation. Check this!")
   }
 
-  if (!is.null(format_info$frq) & !is.na(format_info$frq)
-    & format_info$frq != "" & format_info$frq %in% colnames(gwas_data)) {
-    message("mapping effect allele frequency")
+  if (!is.null(format_info$frq) & !is.na(format_info$frq) & format_info$frq != "") {
+    if (!format_info$frq %in% colnames(gwas_data)) {
+      warning(sprintf(
+        "Effect allele frequency indicated in format file (%s),
+        but not found in summary statistics file", format_info$frq))
+      gwas_data[, "eaf" := NA]
+    } else {
+      message("mapping effect allele frequency")
 
-    print(format_info$frq)
-    gwas_data[, "eaf" := as.numeric(gwas_data[[format_info$frq]])]
+      print(format_info$frq)
+      gwas_data[, "eaf" := as.numeric(gwas_data[[format_info$frq]])]
+    }
   } else {
     gwas_data[, "eaf" := NA]
   }
@@ -183,7 +189,7 @@ map_sample_size <- function(gwas_data, format_info, sample_size) {
     gwas_data[, N := as.numeric(gwas_data[[format_info$n_con_col]]) + as.numeric(gwas_data[[format_info$n_con_col]])]
     gwas_data[, Ntype := "actual"]
 
-  } else if (any(!is.na(gwas_data[eaf]))) {
+  } else if (any(!is.na(gwas_data[["eaf"]]))) {
     message("Could not find sample size column ID, using effect allele frequency to derive sample size")
 
     gwas_data[, N := 1 / (2 * se^2 * eaf * (1 - eaf)) - (EFFECT/se)^2]
