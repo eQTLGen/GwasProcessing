@@ -113,6 +113,11 @@ harmonize_gwas_file <- function(gwas_data, format_info, liftover_chain = NULL, o
     warning("Max p-value is not greater than 1, but column name indicates log transformation. Check this!")
   }
 
+  if (min(gwas_data$p, na.rm=T) <= 0) {
+    message(sprintf("Detected %s variants with P <= 0", sum(gwas_data$p <= 0, na.rm=T)))
+    gwas_data[p <= 0, p := .Machine$double.xmin * .Machine$double.eps * 2]
+  }
+
   if (!is.null(format_info$frq) & !is.na(format_info$frq) & format_info$frq != "") {
     if (!format_info$frq %in% colnames(gwas_data)) {
       warning(sprintf(
@@ -279,7 +284,7 @@ map_standard_error_dynamically <- function(gwas_data, format_info) {
   z_score <- abs(qnorm(gwas_data[["p"]] / 2, lower.tail=F))
 
   # Step 2: Compute the standard error (SE)
-  gwas_data[, se := (gwas_data[["EFFECT"]] / z_score)]
+  gwas_data[, se := (abs(gwas_data[["EFFECT"]] / z_score))]
 
   # If none of the above cases are valid, warn and return data without SE
   return(gwas_data)
