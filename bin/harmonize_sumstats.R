@@ -1,4 +1,4 @@
-e#!/usr/bin/env Rscript
+#!/usr/bin/env Rscript
 
 # Load libraries
 library(data.table)
