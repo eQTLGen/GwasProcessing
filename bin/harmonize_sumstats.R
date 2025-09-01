@@ -1,4 +1,4 @@
-#!/usr/bin/env Rscript
+e#!/usr/bin/env Rscript
 
 # Load libraries
 library(data.table)
@@ -194,10 +194,10 @@ map_sample_size <- function(gwas_data, format_info, sample_size) {
     gwas_data[, N := as.numeric(gwas_data[[format_info$n_con_col]]) + as.numeric(gwas_data[[format_info$n_con_col]])]
     gwas_data[, Ntype := "actual"]
 
-  } else if (any(!is.na(gwas_data[["eaf"]]))) {
+  } else if (all(!is.na(gwas_data[["eaf"]]))) {
     message("Could not find sample size column ID, using effect allele frequency to derive sample size")
 
-    gwas_data[, N := 1 / (2 * se^2 * eaf * (1 - eaf)) - (EFFECT/se)^2]
+    gwas_data[, N := 1 / (2 * se^2 * eaf * (1 - eaf))]
     gwas_data[, Ntype := "derived"]
 
     # Ensure sample size does not exceed maximum if sample_size is provided
@@ -282,9 +282,15 @@ map_standard_error_dynamically <- function(gwas_data, format_info) {
 
   # Step 1: Compute the z-score from the two-sided p-value
   z_score <- abs(qnorm(gwas_data[["p"]] / 2, lower.tail=F))
+  z_score[z_score == Inf] <- abs(qnorm(.Machine$double.xmin / 2, lower.tail=F))
 
   # Step 2: Compute the standard error (SE)
   gwas_data[, se := (abs(gwas_data[["EFFECT"]] / z_score))]
+
+  if (any(gwas_data$p == 0)) {
+    message("Detected p-values equal to 0. Will cap at 2.225074e-308")
+    gwas_data[p==0, p := .Machine$double.xmin]
+  }
 
   # If none of the above cases are valid, warn and return data without SE
   return(gwas_data)
