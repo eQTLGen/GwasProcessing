@@ -346,10 +346,6 @@ main <- function(argv = NULL) {
                       help = "Base directory where the processed summary statistics files will be stored.")
   parser$add_argument('--sqtl-folder', type = 'character',
                       help = 'A tab-delimited file with pQTL results.')
-  parser$add_argument("--sqtl-id", type = "character", required = TRUE,
-                      help = 'protein ID for which the harmonization is done.')
-  parser$add_argument('--allele-frequency', type = 'numeric', default = 0.01,
-                      help = 'Allele frequency threshold.')
   parser$add_argument("--eQTLGen-index", type = "character", required = TRUE, default="/groups/umcg-fg/tmp01/projects/eqtlgen-phase2/processed_data/variants/1000G-30x_index.parquet",
                       help = "eQTLGen parquet index file.")
 
@@ -393,17 +389,15 @@ main <- function(argv = NULL) {
 
   merged_gwas_data[, c("mapping_id", "EFFECT") := NULL, ]
 
-  merged_gwas_data[, gwas_id := args$pqtl_id]
-
   names(merged_gwas_data)[names(merged_gwas_data) == 'eff_allele'] <- 'str_allele2'
   names(merged_gwas_data)[names(merged_gwas_data) == 'non_eff_allele'] <- 'str_allele1'
 
   write_dataset(arrange(merged_gwas_data, variant_index), file.path(args$out_dir, "eqtlgen_parquet_dataset"),
-                format="parquet", partitioning="gwas_id", existing_data_behavior="delete_matching")
+                format="parquet", partitioning="phenotype_id", existing_data_behavior="delete_matching")
 
   log <- tibble(trait_id = args$pqtl_id,
                 original_file = args$pqtl_folder,
-                format = "UKB_PPP",
+                format = "INTERVAL_SQTL",
                 original_length = original_length,
                 removed_na_length = removed_na_length,
                 lifted_length = lifted_length,
