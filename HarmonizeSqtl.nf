@@ -40,9 +40,4 @@ workflow {
     // harmonized_ch = HARMONIZE_GWAS(combined_ch, format_ch)
     harmonization_output = HARMONIZE_SQTL(sqtl_path_ch, variant_mapping_ch)
     harmonization_output.log.collectFile(name: 'harmonization_log.txt', keepHeader: true, skip: 1, storeDir: params.output)
-
-    // Write list of missing files
-    gwas_ch.other
-        .map { gwas -> gwas.gwas_path.toString() }
-        .collectFile(name: "missing_files.txt", newLine: true, storeDir: params.output)
 }
