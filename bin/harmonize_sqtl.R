@@ -352,7 +352,9 @@ main <- function(argv = NULL) {
   # Parse arguments
   args <- parser$parse_args(argv)
 
-  message(sprintf("Starting '%s'\nfile: '%s'", args$pqtl_id, args$pqtl_folder))
+  message(sprintf("Starting '%s'\nfile: '%s'", args$pqtl_id, args$sqtl_folder))
+
+  sqtls <- fread(args$sqtl_folder)
 
   message("pQTLs read in!")
 
@@ -360,7 +362,7 @@ main <- function(argv = NULL) {
   setkey(eqtlgen_index_extended, mapping_id)
 
   # Harmonize the file
-  harmonized_data <- harmonize_gwas_file(pqtls, INTERVAL_SQTL_FORMAT_INFO, output_z_scores = FALSE, output_sample_size = FALSE)
+  harmonized_data <- harmonize_gwas_file(sqtls, INTERVAL_SQTL_FORMAT_INFO, output_z_scores = FALSE, output_sample_size = FALSE)
   harmonized_gwas_data <- harmonized_data$gwas_dt
   original_length <- harmonized_data$original_length
   removed_na_length <- harmonized_data$removed_na_length

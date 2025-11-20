@@ -29,7 +29,7 @@ process HARMONIZE_SQTL {
     shell:
         '''
         harmonize_sqtl.R \
-        --gwas-file !{gwas.join(" ")} \
+        --sqtl-folder !{gwas.join(" ")} \
         --out-dir . \
         --eQTLGen-index !{variant_reference}
         '''
