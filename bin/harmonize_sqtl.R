@@ -405,7 +405,7 @@ main <- function(argv = NULL) {
                 lifted_length = lifted_length,
                 merged_length = merged_length,
                 swapped_rows = swapped_rows,
-                format_info = list(UKB_PPP_FORMAT_INFO),
+                format_info = list(INTERVAL_SQTL_FORMAT_INFO),
                 software_version = SOFTWARE_VERSION
   ) %>% unnest_wider(format_info, names_sep="_")
 
