@@ -369,7 +369,7 @@ main <- function(argv = NULL) {
   lifted_length <- harmonized_data$lifted_length
 
   # Save the harmonized data to a new file
-  output_file <- file.path(args$out_dir, sprintf("%s.sumstats.harmonized.gz"))
+  output_file <- file.path(args$out_dir, sprintf("sumstats.harmonized.gz"))
   fwrite(harmonized_gwas_data[, .(SNP, CHR, BP, A1, A2, EFFECT, p, se, phenotype_id)], output_file, sep = "\t", row.names=F, col.names=T, quote=F)
   message(sprintf("Harmonized %s -> %s", args$pqtl_folder, output_file))
   message(sprintf("Original rows: %i\nAfter removing rows where some of the remapped columns have NA's: %i\nAfter liftOver: %i\n", original_length, removed_na_length, lifted_length))
