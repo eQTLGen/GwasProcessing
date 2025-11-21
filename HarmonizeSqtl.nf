@@ -23,7 +23,7 @@ process HARMONIZE_SQTL {
         path variant_reference
 
     output:
-        tuple val(id), path("eqtlgen_parquet_dataset/CHR=*")
+        path("eqtlgen_parquet_dataset/CHR=*")
         path("*.log.txt"), emit: log
 
     shell:
