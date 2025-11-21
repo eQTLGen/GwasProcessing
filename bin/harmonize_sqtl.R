@@ -397,8 +397,8 @@ main <- function(argv = NULL) {
   write_dataset(arrange(merged_gwas_data, variant_index), file.path(args$out_dir, "eqtlgen_parquet_dataset"),
                 format="parquet", partitioning="CHR", existing_data_behavior="delete_matching")
 
-  log <- tibble(trait_id = args$pqtl_id,
-                original_file = args$pqtl_folder,
+  log <- tibble(trait_id = merged_gwas_data$CHR[1],
+                original_file = args$sqtl_folder,
                 format = "INTERVAL_SQTL",
                 original_length = original_length,
                 removed_na_length = removed_na_length,
@@ -409,7 +409,7 @@ main <- function(argv = NULL) {
                 software_version = SOFTWARE_VERSION
   ) %>% unnest_wider(format_info, names_sep="_")
 
-  log_file <- file.path(args$out_dir, sprintf("%s.log.txt", args$pqtl_id))
+  log_file <- file.path(args$out_dir, sprintf("%s.log.txt", merged_gwas_data$CHR[1]))
 
   fwrite(log, log_file)
 }
