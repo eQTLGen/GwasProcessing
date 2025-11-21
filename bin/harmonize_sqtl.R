@@ -376,7 +376,7 @@ main <- function(argv = NULL) {
   message("Starting merging...")
 
   harmonized_gwas_data[, mapping_id := paste0(CHR, "_", BP, "_", pmin(A1, A2), "_", pmax(A1, A2))]
-  harmonized_data_subset <- harmonized_gwas_data[, .(mapping_id, A1, A2, EFFECT, p, se, phenotype_id)]
+  harmonized_data_subset <- harmonized_gwas_data[, .(mapping_id, A1, A2, EFFECT, p, se, phenotype_id, CHR)]
 
   setkey(harmonized_data_subset, mapping_id)
   merged_gwas_data <- merge(harmonized_data_subset,eqtlgen_index_extended, all=F)
@@ -395,7 +395,7 @@ main <- function(argv = NULL) {
   names(merged_gwas_data)[names(merged_gwas_data) == 'non_eff_allele'] <- 'str_allele1'
 
   write_dataset(arrange(merged_gwas_data, variant_index), file.path(args$out_dir, "eqtlgen_parquet_dataset"),
-                format="parquet", partitioning="phenotype_id", existing_data_behavior="delete_matching")
+                format="parquet", partitioning="CHR", existing_data_behavior="delete_matching")
 
   log <- tibble(trait_id = args$pqtl_id,
                 original_file = args$pqtl_folder,

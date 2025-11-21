@@ -14,7 +14,7 @@ process HARMONIZE_SQTL {
         //scratch true // Needs to be set to true!
         scratch '$TMPDIR'
         // scratch false
-        publishDir "${params.output}", mode: 'copy', overwrite: true, pattern: 'eqtlgen_parquet_dataset/phenotype_id=*'
+        publishDir "${params.output}", mode: 'copy', overwrite: true, pattern: 'eqtlgen_parquet_dataset/chr=*'
         tag "$id"
         beforeScript "ml R"
 
@@ -23,7 +23,7 @@ process HARMONIZE_SQTL {
         path variant_reference
 
     output:
-        tuple val(id), path("eqtlgen_parquet_dataset/phenotype_id=*")
+        tuple val(id), path("eqtlgen_parquet_dataset/chr=*")
         path("*.log.txt"), emit: log
 
     shell:
